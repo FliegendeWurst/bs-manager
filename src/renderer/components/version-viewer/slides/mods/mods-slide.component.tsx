@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, ReactNode, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { BsModsManagerService } from "renderer/services/bs-mods-manager.service";
 import { BSVersion } from "shared/bs-version.interface";
 import { BbmCategories, BbmFullMod, BbmModVersion } from "shared/models/mods/mod.interface";
@@ -19,11 +19,20 @@ import { useService } from "renderer/hooks/use-service.hook";
 import { NotificationService } from "renderer/services/notification.service";
 import { noop } from "shared/helpers/function.helpers";
 import { UninstallAllModsModal } from "renderer/components/modal/modal-types/uninstall-all-mods-modal.component";
-import { Dropzone } from "renderer/components/shared/dropzone.component";
 import Tippy from "@tippyjs/react";
 import { ProgressBarService } from "renderer/services/progress-bar.service";
+import { Dropzone } from "renderer/components/shared/dropzone.component";
 
-export function ModsSlide({ version, isActive, onDisclamerDecline }: { version: BSVersion; isActive?: boolean, onDisclamerDecline: () => void }) {
+export type ModsSlideRef = {
+    loadMods: () => Promise<void>;
+    getModsToInstall: (reinstallAll?: boolean) => BbmFullMod[];
+    installMods: (reinstallAll?: boolean) => Promise<void>;
+}
+
+type Props = { version: BSVersion; isActive?: boolean, onDisclamerDecline: () => void };
+
+
+export const ModsSlide = forwardRef<ModsSlideRef, Props>(({ version, isActive, onDisclamerDecline }, forwardedRef) => {
     const ACCEPTED_DISCLAIMER_KEY = "accepted-mods-disclaimer";
 
     const { text: t } = useTranslationV2();
@@ -48,6 +57,14 @@ export function ModsSlide({ version, isActive, onDisclamerDecline }: { version: 
 
     const downloadRef = useRef(null);
     const [downloadWith, setDownloadWidth] = useState(0);
+
+    useImperativeHandle(forwardedRef, () => {
+        return {
+            loadMods,
+            getModsToInstall,
+            installMods
+        };
+    }, [version, modsAvailable, modsInstalled, modsSelected]);
 
     const modsToCategoryMap = (mods: BbmFullMod[]): Map<BbmCategories, BbmFullMod[]> => {
         if (!mods) {
@@ -100,14 +117,7 @@ export function ModsSlide({ version, isActive, onDisclamerDecline }: { version: 
         return Array.from(collectedDependencies);
     };
 
-    const installMods = (reinstallAll: boolean): void => {
-
-        setReinstallAllMods(false);
-
-        if (installing) {
-            return;
-        }
-
+    const getModsToInstall = (reinstallAll?: boolean): BbmFullMod[] => {
         let modsToInstall = [
             ...modsSelected,
             ...getAllDependencies(modsSelected, Array.from(modsAvailable.values()).flat())
@@ -127,18 +137,30 @@ export function ModsSlide({ version, isActive, onDisclamerDecline }: { version: 
         set.delete(null);
         set.delete(undefined);
 
-        modsToInstall = Array.from(set); // Remove duplicates
+        return Array.from(set); // Remove duplicates
+    }
+
+    const installMods = (reinstallAll: boolean): Promise<void> => {
+
+        setReinstallAllMods(false);
+
+        if (installing) {
+            return Promise.resolve();
+        }
+
+        const modsToInstall = getModsToInstall(reinstallAll);
 
         if (!modsToInstall.length) {
             notification.notifyInfo({ title: "pages.version-viewer.mods.notifications.all-mods-already-installed.title", desc: "pages.version-viewer.mods.notifications.all-mods-already-installed.description" });
-            loadMods();
-            return;
+            return loadMods();
         }
 
         setInstalling(() => true)
-        lastValueFrom(modsManager.installMods(modsToInstall, version)).then(() => {
-            loadMods();
-        }).catch(noop).finally(() => setInstalling(() => false));
+        return lastValueFrom(modsManager.installMods(modsToInstall, version)).then(() => (
+            loadMods()
+        )).catch(noop).finally(() => (
+            setInstalling(() => false)
+        ));
     };
 
     const importMods = (files: string[]): void => {
@@ -325,7 +347,7 @@ export function ModsSlide({ version, isActive, onDisclamerDecline }: { version: 
             </Dropzone>
         </div>
     );
-}
+})
 
 function ModStatus({ text, image, spin = false, children }: { text: string; image: string; spin?: boolean, children?: ReactNode}) {
     const t = useTranslation();

@@ -1,5 +1,5 @@
 import { BSVersion } from "shared/bs-version.interface";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { TabNavBar } from "renderer/components/shared/tab-nav-bar.component";
 import { BsmDropdownButton } from "renderer/components/shared/bsm-dropdown-button.component";
@@ -10,7 +10,7 @@ import { ModalExitCode, ModalService } from "../services/modale.service";
 import DefautVersionImage from "../../../assets/images/default-version-img.jpg";
 import { IpcService } from "renderer/services/ipc.service";
 import { LaunchSlide } from "renderer/components/version-viewer/slides/launch/launch-slide.component";
-import { ModsSlide } from "renderer/components/version-viewer/slides/mods/mods-slide.component";
+import { ModsSlide, ModsSlideRef } from "renderer/components/version-viewer/slides/mods/mods-slide.component";
 import { UninstallModal } from "renderer/components/modal/modal-types/uninstall-modal.component";
 import { MapsPlaylistsPanel } from "renderer/components/maps-playlists-panel/maps-playlists-panel.component";
 import { ShareFoldersModal } from "renderer/components/modal/modal-types/share-folders-modal.component";
@@ -37,6 +37,8 @@ export function VersionViewer() {
     const notification = useService(NotificationService);
     const config = useService(ConfigurationService);
 
+    const modsSlideRef = useRef<ModsSlideRef>(null);
+
     const { state, pathname: url } = useLocation() as { state: BSVersion; pathname: string };
     const navigate = useNavigate();
     const [currentTabIndex, setCurrentTabIndex] = useState(0);
@@ -44,6 +46,11 @@ export function VersionViewer() {
     useOnUpdate(() => {
 
         checkIsVersionOutaded();
+        console.log("AAAAAA");
+        if(currentTabIndex !== 3){
+            console.log("BBBBBB");
+            checkOutdatedMods();
+        }
 
     }, [state]);
 
@@ -67,6 +74,35 @@ export function VersionViewer() {
 
         if(res === "0"){
             config.set("not-show-bs-version-outdated-notification", true);
+        }
+    }
+
+    const checkOutdatedMods = async () => {
+        console.log("AAAAA", modsSlideRef);
+        if(!modsSlideRef?.current?.loadMods){
+            return;
+        }
+
+        console.log("CCCCC");
+
+        await modsSlideRef.current.loadMods();
+        const modsToInstall = modsSlideRef.current.getModsToInstall(); // Outdated mods
+
+        console.log("DDDDD", modsToInstall);
+
+        if(!modsToInstall.length){
+            return;
+        }
+
+        const res = await notification.notifyWarning({ title: "Outdated mods", desc: "There are mods that are outdated, do you want to update them?", duration: 9000, actions: [
+            { id: "0", title: "Update mods" },
+            { id: "1", title: "Go to mods" }
+        ]});
+
+        if(res === "0"){
+            modsSlideRef.current.installMods();
+        } else if(res === "1"){
+            setCurrentTabIndex(() => 3);
         }
     }
 
@@ -153,7 +189,7 @@ export function VersionViewer() {
                     <div className="w-full shrink-0 px-3 pb-3 flex flex-col items-center">
                         <ModelsPanel version={state} isActive={currentTabIndex === 2} goToMods={() => setCurrentTabIndex(() => 3)} />
                     </div>
-                    <ModsSlide version={state} isActive={currentTabIndex === 3} onDisclamerDecline={handleModsDisclaimerDecline} />
+                    <ModsSlide ref={modsSlideRef} version={state} isActive={currentTabIndex === 3} onDisclamerDecline={handleModsDisclaimerDecline} />
                 </div>
             </div>
             <BsmDropdownButton className="absolute top-3 right-4 h-9 w-9 bg-light-main-color-2 dark:bg-main-color-2 rounded-md" items={[
